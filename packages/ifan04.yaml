@@ -1,0 +1,197 @@
+esphome:
+  comment: "Sonoff iFan04-L"
+
+esp8266:
+  board: esp01_1m
+
+status_led:
+  pin:
+    number: 13
+    inverted: true
+
+logger:
+  baud_rate: 0
+
+uart:
+  tx_pin: 1
+  rx_pin: 3
+  baud_rate: 9600
+
+remote_receiver:
+  pin: 3
+
+binary_sensor:
+  - platform: remote_receiver
+    id: remote_light
+    raw:
+      code: [-207, 104, -103, 104, -104, 103, -104, 207, -104, 103, -104, 104, -103, 104, -103, 104, -104, 103, -104, 104, -725, 104, -311, 103, -518, 104, -933, 103, -104, 103, -726, 103, -311, 104, -518, 104, -207, 104, -103, 104, -414]
+    on_release:
+      then:
+        - light.toggle: ifan04_light
+  - platform: remote_receiver
+    id: remote_speed0
+    raw:
+      code: [-207, 104, -103, 104, -104, 103, -104, 207, -104, 103, -104, 104, -103, 104, -104, 103, -104, 105, -102, 104, -725, 104, -311, 103, -518, 104, -933, 103, -104, 104, -725, 104, -932, 104, -207, 207, -519]
+    on_release:
+      then:
+        - fan.turn_off: ifan04
+        - if:
+            condition:
+              and:
+                - switch.is_on: buzzer
+            then:
+              - output.turn_on: buzzer_output
+              - delay: 500ms
+              - output.turn_off: buzzer_output
+
+  - platform: remote_receiver
+    id: remote_speed1
+    raw:
+      code: [-207, 104, -104, 103, -104, 104, -103, 207, -104, 104, -103, 104, -104, 103, -104, 104, -103, 104, -104, 103, -726, 103, -312, 103, -518, 104, -933, 103, -104, 104, -725, 104, -103, 104, -726, 103, -104, 311, -518]
+    on_release:
+      then:
+        - fan.turn_on:
+              id: ifan04
+              speed: 1
+        - if:
+            condition:
+              and:
+                - switch.is_on: buzzer
+            then:
+              - output.turn_on: buzzer_output
+              - delay: 50ms
+              - output.turn_off: buzzer_output
+  - platform: remote_receiver
+    id: remote_speed2
+    raw:
+      code: [-208, 103, -104, 104, -103, 104, -103, 208, -103, 104, -104, 103, -104, 104, -103, 104, -104, 103, -104, 103, -726, 104, -310, 104, -518, 104, -933, 103, -104, 104, -725, 104, -207, 104, -622, 103, -416, 102, -415]
+    on_release:
+      then:
+        - fan.turn_on:
+              id: ifan04
+              speed: 2
+        - if:
+            condition:
+              and:
+                - switch.is_on: buzzer
+            then:
+              - output.turn_on: buzzer_output
+              - delay: 50ms
+              - output.turn_off: buzzer_output
+              - delay: 50ms
+              - output.turn_on: buzzer_output
+              - delay: 50ms
+              - output.turn_off: buzzer_output
+  - platform: remote_receiver
+    id: remote_speed3
+    raw:
+      code: [-207, 104, -104, 103, -104, 104, -103, 208, -103, 104, -104, 103, -104, 104, -103, 104, -104, 103, -104, 103, -726, 104, -311, 104, -518, 103, -934, 103, -103, 104, -726, 103, -104, 207, -622, 104, -103, 104, -207, 104, -415]
+    on_release:
+      then:
+        - fan.turn_on:
+              id: ifan04
+              speed: 3
+        - if:
+            condition:
+              and:
+                - switch.is_on: buzzer
+            then:
+              - output.turn_on: buzzer_output
+              - delay: 50ms
+              - output.turn_off: buzzer_output
+              - delay: 50ms
+              - output.turn_on: buzzer_output
+              - delay: 50ms
+              - output.turn_off: buzzer_output
+              - delay: 50ms
+              - output.turn_on: buzzer_output
+              - delay: 50ms
+              - output.turn_off: buzzer_output
+  - platform: remote_receiver
+    id: remote_buzzer
+    raw:
+      code: [-207, 104, -103, 104, -104, 103, -104, 207, -104, 103, -104, 103, -104, 104, -103, 104, -103, 104, -104, 107, -721, 105, -206, 207, -518, 105, -931, 104, -104, 103, -725, 104, -104, 103, -725, 104, -104, 103, -207, 104, -414]
+    on_release:
+      then:
+        - switch.toggle: buzzer
+
+fan:
+  - platform: speed
+    id: ifan04
+    name: ""
+    output: ifan04_output
+    speed_count: 3
+    restore_mode: ALWAYS_OFF
+    on_speed_set:
+      then:
+        - if:
+            condition:
+              lambda: |-
+                return (id(ifan04).speed == 1 && id(ifan04).state);
+            then:
+              - switch.turn_on: relay1
+              - switch.turn_off: relay2
+              - switch.turn_off: relay3
+        - if:
+            condition:
+              lambda: |-
+                return (id(ifan04).speed == 2 && id(ifan04).state);
+            then:
+              - switch.turn_on: relay1 # 
+              - switch.turn_on: relay2
+              - switch.turn_off: relay3
+        - if:
+            condition:
+              lambda: |-
+                return (id(ifan04).speed == 3 && id(ifan04).state);
+            then:
+                - switch.turn_off: relay1
+                - switch.turn_off: relay2
+                - switch.turn_on: relay3
+    on_turn_off:
+      then:
+        - switch.turn_off: relay1
+        - switch.turn_off: relay2
+        - switch.turn_off: relay3
+
+light:
+  - platform: binary
+    id: ifan04_light
+    name: "Light"
+    output: ifan04_light_output
+    restore_mode: RESTORE_DEFAULT_OFF
+
+switch:
+  - platform: template
+    id: buzzer
+    optimistic: True
+  - platform: gpio
+    id: relay1
+    pin: 14
+    restore_mode: ALWAYS_OFF
+    interlock: [relay3]
+  - platform: gpio
+    id: relay2
+    pin: 12
+    restore_mode: ALWAYS_OFF
+    interlock: [relay3]
+  - platform: gpio
+    id: relay3
+    pin: 15
+    restore_mode: ALWAYS_OFF
+    interlock: [relay1, relay2]
+
+output:
+  - platform: template
+    id: ifan04_output
+    type: float
+    write_action:
+      - lambda: "return;"
+  - platform: gpio
+    id: ifan04_light_output
+    pin: 9
+    inverted: true
+  - platform: gpio
+    id: buzzer_output
+    pin: 10
+    inverted: true
