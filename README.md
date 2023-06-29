@@ -1,6 +1,6 @@
 # ESPHome Packages
 
-A collection of simple ESPHome packages.
+A collection of tidy ESPHome packages.
 
 ## iFan04-L
 
