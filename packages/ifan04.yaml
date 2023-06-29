@@ -137,7 +137,7 @@ fan:
               lambda: |-
                 return (id(ifan04).speed == 2 && id(ifan04).state);
             then:
-              - switch.turn_on: relay1 # 
+              - switch.turn_on: relay1 # switch.turn_off: relay1 (slower)
               - switch.turn_on: relay2
               - switch.turn_off: relay3
         - if:
@@ -164,6 +164,7 @@ light:
 switch:
   - platform: template
     id: buzzer
+    name: "Buzzer"
     optimistic: True
   - platform: gpio
     id: relay1
