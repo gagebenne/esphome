@@ -1,0 +1,288 @@
+substitutions:
+  min_scoops: "1"
+  max_scoops: "5"
+
+esphome:
+  comment: Petkit Fresh Element Solo
+  project:
+    name: gagebenne.petkit_fresh_element_solo
+    version: 1.0.0
+
+esp32:
+  board: esp32dev
+
+logger:
+  baud_rate: 0
+
+globals:
+  - id: current_motor_scoops
+    type: int
+    restore_value: false
+    initial_value: "0"
+  - id: previous_motor_scoops
+    type: int
+    restore_value: false
+    initial_value: "0"
+  - id: current_feed_scoops
+    type: int
+    restore_value: false
+    initial_value: "0"
+  - id: previous_feed_scoops
+    type: int
+    restore_value: false
+    initial_value: "0"
+  - id: max_scoops
+    type: int
+    restore_value: true
+    initial_value: $max_scoops
+  - id: min_scoops
+    type: int
+    restore_value: true
+    initial_value: $min_scoops
+
+debug:
+
+api:
+  actions:
+    - action: dispense_food
+      variables:
+        scoops: int
+      then:
+        - script.execute:
+            id: feeding
+            scoops: !lambda return scoops;
+
+uart:
+  tx_pin: 1
+  rx_pin: 3
+  baud_rate: 9600
+
+time:
+  - platform: homeassistant
+    id: homeassistant_time
+
+number:
+  - id: default_scoops
+    name: Default scoops
+    platform: template
+    icon: mdi:cup
+    entity_category: config
+    min_value: $min_scoops
+    max_value: $max_scoops
+    initial_value: 1
+    optimistic: true
+    step: 1
+    restore_value: true
+    unit_of_measurement: scoops
+    mode: slider
+
+text_sensor:
+  - platform: template
+    name: "Status"
+    id: status
+    icon: mdi:information
+    entity_category: diagnostic
+    # ["Ready", "Feeding", "Feeder jammed", "Food shortage", "Food surplus"]
+
+sensor:
+  - id: last_feeding_time
+    name: Last Feed Time
+    platform: template
+    icon: "mdi:clock"
+    device_class: timestamp
+    entity_category: diagnostic
+    update_interval: never
+  - id: last_feeding_scoops
+    name: Last Feed Scoops
+    platform: template
+    icon: "mdi:counter"
+    state_class: measurement
+    unit_of_measurement: scoops
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    update_interval: never
+
+binary_sensor:
+  - id: error
+    name: Error
+    platform: template
+    device_class: problem
+    entity_category: diagnostic
+    lambda: return !(id(status).state == "Ready" || id(status).state == "Feeding");
+  - id: wifi_button
+    platform: gpio
+    pin:
+      number: 0
+      inverted: true
+      ignore_strapping_warning: true
+  - id: feed_sensor
+    platform: gpio
+    pin: 14
+    filters:
+      # Count scoops once per motor rotation
+      - delayed_off: 1s
+    on_press:
+      then:
+        lambda: id(current_feed_scoops)++;
+  - id: motor_sensor
+    platform: gpio
+    pin:
+      number: 27
+      inverted: true
+    on_press:
+      then:
+        lambda: id(current_motor_scoops)++;
+  - id: manual_feeding_button
+    platform: gpio
+    pin:
+      number: 34
+      inverted: true
+    on_press:
+      then:
+        # Button press overrides feeder error
+        - lambda: id(status).publish_state("Ready");
+        - script.execute:
+            id: feeding
+            scoops: 1
+
+switch:
+  - id: feed_reverse
+    name: Feed Reverse
+    disabled_by_default: true
+    platform: gpio
+    pin: 17
+    interlock: [feed_forward]
+    interlock_wait_time: 1s
+    on_turn_on:
+      then:
+        - switch.turn_on: enable_feed_motor
+    on_turn_off:
+      then:
+        - switch.turn_off: enable_feed_motor
+  - id: feed_forward
+    name: Feed Forward
+    disabled_by_default: true
+    platform: gpio
+    pin: 18
+    interlock: [feed_reverse]
+    interlock_wait_time: 1s
+    on_turn_on:
+      then:
+        - switch.turn_on: enable_feed_motor
+    on_turn_off:
+      then:
+        - switch.turn_off: enable_feed_motor
+  - id: enable_feed_motor
+    platform: gpio
+    pin: 19
+    restore_mode: ALWAYS_OFF
+  - id: enable_sensors
+    platform: gpio
+    pin: 33
+    restore_mode: ALWAYS_ON
+  - id: buzzer
+    name: Buzzer
+    platform: template
+    icon: mdi:volume-high
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    entity_category: config
+
+light:
+  - platform: status_led
+    id: led_output
+    pin:
+      number: 5
+      ignore_strapping_warning: true
+
+output:
+  - id: rtttl_output
+    platform: ledc
+    pin: 16
+
+rtttl:
+  output: rtttl_output
+
+button:
+  - id: dispense_food
+    name: Dispense food
+    icon: mdi:food-drumstick
+    platform: template
+    on_press:
+      - script.execute:
+          id: feeding
+          scoops: !lambda return id(default_scoops).state;
+
+script:
+  - id: feeding
+    parameters:
+      scoops: int
+    mode: single
+    then:
+      - if:
+          condition:
+            lambda: return id(status).state == "Feeder jammed";
+          then:
+            - script.stop: feeding
+      - if:
+          condition:
+            binary_sensor.is_on: feed_sensor
+          then:
+            - lambda: id(status).publish_state("Food surplus");
+            - script.stop: feeding
+      - lambda: |-
+          id(status).publish_state("Feeding");
+          id(current_motor_scoops) = 0;
+          id(current_feed_scoops) = 0;
+      - if:
+          condition:
+            switch.is_on: buzzer
+          then:
+            - rtttl.play: "long:d=1,o=5,b=100:e6"
+      - switch.turn_on: feed_forward
+      - repeat:
+          count: !lambda return min(scoops, id(max_scoops));
+          then:
+            - lambda: |-
+                id(previous_motor_scoops) = id(current_motor_scoops);
+                id(previous_feed_scoops) = id(current_feed_scoops);
+            - wait_until:
+                condition:
+                  lambda: return id(current_motor_scoops) > id(previous_motor_scoops);
+                # Approximate time to dispense one scoop
+                timeout: 5s
+            # If motor scoops are not increasing, feeder jammed
+            - if:
+                condition:
+                  lambda: return id(current_motor_scoops) == id(previous_motor_scoops);
+                then:
+                  - switch.turn_off: feed_forward
+                  - lambda: id(status).publish_state("Feeder jammed");
+                  - script.stop: feeding
+            # If feed scoops are not increasing, food shortage or food surplus
+            - if:
+                condition:
+                  lambda: return id(current_feed_scoops) == id(previous_feed_scoops);
+                then:
+                  - switch.turn_off: feed_forward
+                  - if:
+                      condition:
+                        binary_sensor.is_on: feed_sensor
+                      then:
+                        - lambda: id(status).publish_state("Food surplus");
+                      else:
+                        - lambda: id(status).publish_state("Food shortage");
+                  - if:
+                      # Some scoops were dispensed
+                      condition:
+                        lambda: return id(current_feed_scoops) != 0;
+                      then:
+                        - lambda: |-
+                            id(last_feeding_time).publish_state(id(homeassistant_time).now().timestamp);
+                            id(last_feeding_scoops).publish_state(id(current_feed_scoops));
+                  - script.stop: feeding
+      - switch.turn_off: feed_forward
+      - lambda: |-
+          id(status).publish_state("Ready");
+          id(last_feeding_time).publish_state(id(homeassistant_time).now().timestamp);
+          id(last_feeding_scoops).publish_state(scoops);
